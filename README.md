@@ -3,12 +3,12 @@
 Este proyecto implementa una solución de inteligencia de negocios para detectar de forma temprana si un usuario realizará una compra en un sitio de comercio electrónico.
 
 ## Integrantes
-- a
-- b
-- c
-- d
-- e
-- Alessandro Ventresca C.I: 30 282 309
+- Daniella
+- Mariadelia
+- Claudia
+- Giovanni
+- Ricardo
+- Alessandro Ventresca C.I: 30282309
 
 ## 1. Contexto del Negocio
 El objetivo es permitir que la tienda muestre dinámicamente productos de mayor valor a usuarios con alta intención de compra, aumentando así los ingresos generales (revenue).
