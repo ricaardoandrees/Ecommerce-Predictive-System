@@ -1,69 +1,72 @@
 import pandas as pd
 import joblib
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report
-import pandas as pd
-import joblib
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report
+import matplotlib.pyplot as plt
+import numpy as np
+import keras_tuner as kt
+from tensorflow import keras
+from tensorflow.keras import layers, callbacks, regularizers, metrics
+from sklearn.model_selection import train_test_split, RandomizedSearchCV
+from sklearn.metrics import accuracy_score, classification_report, f1_score, roc_curve, auc, confusion_matrix, ConfusionMatrixDisplay
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, RobustScaler
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers, metrics, callbacks
-import keras_tuner as kt
-from sklearn.metrics import f1_score, roc_curve, auc, confusion_matrix, ConfusionMatrixDisplay
-import matplotlib.pyplot as plt
 
 def preprocesar_datos(df):
     """Limpia los datos y aplica las transformaciones."""
     print("--- INICIANDO PREPROCESAMIENTO ---")
     
-    # 1. Transformaciones de la vez pasada
+    # 1. Transformaciones
     month_map = {
         'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'June': 6,
         'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
     }
     df['Month'] = df['Month'].map(month_map)
+    
+    # Manejar VisitorType
     df = pd.get_dummies(df, columns=['VisitorType'])
+    
+    # Asegurar que las columnas booleanas sean int
     df['Weekend'] = df['Weekend'].astype(int)
     df['Revenue'] = df['Revenue'].astype(int)
     
-    if 'VisitorType_Returning_Visitor' in df.columns:
-        df['VisitorType_Returning_Visitor'] = df['VisitorType_Returning_Visitor'].astype(int)
-    if 'VisitorType_Other' in df.columns:
-        df['VisitorType_Other'] = df['VisitorType_Other'].astype(int)
+    # Manejar posibles columnas faltantes tras get_dummies si es necesario
+    for col in ['VisitorType_Returning_Visitor', 'VisitorType_Other', 'VisitorType_New_Visitor']:
+        if col in df.columns:
+            df[col] = df[col].astype(int)
         
-    # 2. LIMPIEZA NUEVA (Lo que me acabas de pasar)
+    # 2. LIMPIEZA
     # Eliminar duplicados
     df.drop_duplicates(inplace=True)
 
-    # Eliminando columnas que aporten leakage o no tengan valor
-    def eliminarColumnas(columnas, dataset):
-        for i in range(len(columnas)):
-            if columnas[i] in dataset.columns:
-                dataset.drop(columnas[i], axis=1, inplace=True)
-                
-    cols = ['ExitRates', 'VisitorType_New_Visitor']
-    eliminarColumnas(cols, df)
+    # Eliminando columnas que aporten leakage o no tengan valor (según código original)
+    cols_to_drop = ['ExitRates', 'VisitorType_New_Visitor']
+    for col in cols_to_drop:
+        if col in df.columns:
+            df.drop(col, axis=1, inplace=True)
     
     # 3. Separación de Variables
     X = df.drop('Revenue', axis=1)
+    
+    # Reordenar columnas para asegurar consistencia con la API
+    expected_order = [
+        'Administrative', 'Administrative_Duration', 'Informational', 'Informational_Duration', 
+        'ProductRelated', 'ProductRelated_Duration', 'BounceRates', 'PageValues', 
+        'SpecialDay', 'Month', 'OperatingSystems', 'Browser', 'Region', 'TrafficType', 
+        'Weekend', 'VisitorType_Other', 'VisitorType_Returning_Visitor'
+    ]
+    
+    # Asegurar que todas las columnas existan (por si acaso)
+    for col in expected_order:
+        if col not in X.columns:
+            X[col] = 0
+            
+    X = X[expected_order]
     y = df['Revenue']
     
     return X, y
 
-def build_model(hp):
-    # (OJO: para que X_train_final.shape[1] funcione aquí, puedes pasarle el input_shape como parámetro, 
-    # o simplemente poner el número de columnas que te quedó tras la limpieza. 
-    # Para hacerlo dinámico, lo leeremos directamente de los datos)
-    pass # La definimos dentro de entrenar_modelo para tener acceso a X_train_final
-
 def entrenar_modelo(X_train_final, y_train, X_valid_final, y_valid):
-    """Entrena la red neuronal buscando los mejores hiperparámetros."""
-    print("\n--- BUSCANDO LOS MEJORES HIPERPARÁMETROS ---")
+    print("\n--- BUSCANDO LOS MEJORES HIPERPARÁMETROS CON RANDOM SEARCH ---")
     
-    # Definimos la arquitectura aquí adentro para que lea el shape correcto
     def build_model_internal(hp):
         model = keras.Sequential()
         model.add(layers.Input(shape=(X_train_final.shape[1],)))
@@ -123,37 +126,30 @@ def entrenar_modelo(X_train_final, y_train, X_valid_final, y_valid):
         callbacks=[early_stop],
         verbose=1
     )
-
-    # Recuperar y entrenar el mejor modelo
-    print("\n--- ENTRENANDO EL MEJOR MODELO ENCONTRADO ---")
-    best_hps = tuner.get_best_hyperparameters(num_trials=1)[0]
-    model_final = tuner.hypermodel.build(best_hps)
-
-    history = model_final.fit(
-        X_train_final, y_train,
-        epochs=30,
-        validation_data=(X_valid_final, y_valid),
-        callbacks=[early_stop],
-        verbose=0
-    )
     
-    return model_final, tuner, history
+    print(f"Mejores parámetros: {tuner.get_best_hyperparameters(num_trials=1)[0]}")
+    return tuner.get_best_models(num_models=1)[0]
 
 def ejecutar_entrenamiento():
     # 1. Cargar datos
-    df = pd.read_csv('ecommerce_dataset.csv')
+    dataset_path = 'Dataset/dataset shop.csv'
+    df = pd.read_csv(dataset_path)
     
     # 2. Preprocesar y limpiar
     X, y = preprocesar_datos(df)
     
-    # 3. Separación (¡Doble split como en el Colab!)
+    # 3. Separación
     X_train_full, X_test, y_train_full, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
     X_train, X_valid, y_train, y_valid = train_test_split(X_train_full, y_train_full, test_size=0.2, random_state=42)
-    print("\nDatos listos para el entrenamiento.")
     
     # 4. Configurar el Escalador (ColumnTransformer)
+    # Ajustamos las columnas según las disponibles tras el preprocesamiento
     cols_robust = ['Administrative_Duration', 'Informational_Duration', 'ProductRelated_Duration', 'PageValues', 'BounceRates']
     cols_estandar = ['Administrative', 'Informational', 'ProductRelated', 'SpecialDay', 'TrafficType']
+
+    # Verificar que las columnas existan antes de aplicar
+    cols_robust = [c for c in cols_robust if c in X_train_full.columns]
+    cols_estandar = [c for c in cols_estandar if c in X_train_full.columns]
 
     preprocessor = ColumnTransformer(
         transformers=[
@@ -174,24 +170,32 @@ def ejecutar_entrenamiento():
     joblib.dump(preprocessor, 'preprocessor.pkl')
     print("¡preprocessor.pkl generado con éxito!")
     
-    # 7. Entrenar el modelo (Asegúrate de pasarle los datos de validación también)
-    model_final, tuner, history = entrenar_modelo(X_train_final, y_train, X_valid_final, y_valid)
+    # 7. Entrenar el modelo
+    model_final = entrenar_modelo(X_train_final, y_train, X_valid_final, y_valid)
     
     # 8. Evaluación del Modelo (Con el test set)
     print("\n--- EVALUACIÓN FINAL ---")
-    best_model = tuner.get_best_models(num_models=1)[0]
-    y_probs = best_model.predict(X_test_final).ravel()
+    y_probs = model_final.predict(X_test_final).ravel()
     y_pred = (y_probs > 0.5).astype(int)
 
+    acc = accuracy_score(y_test, y_pred)
     f1 = f1_score(y_test, y_pred)
     fpr, tpr, thresholds = roc_curve(y_test, y_probs)
     roc_auc = auc(fpr, tpr)
 
+    print(f"Accuracy en Test: {acc:.4f}")
     print(f"F1-Score en Test: {f1:.4f}")
     print(f"ROC AUC en Test: {roc_auc:.4f}")
+    print("\nReporte de Clasificación:")
+    print(classification_report(y_test, y_pred))
 
-    # 9. Mostrar las gráficas
-    # Curva ROC
+    # 10. ¡GUARDAR EL MODELO PARA LA API!
+    print("\n--- GUARDANDO MODELO ---")
+    model_final.save('model.keras')
+    print("¡model.keras exportado exitosamente!")
+    print("¡Pipeline completado! Ya tienes preprocessor.pkl y model.keras listos para la API.")
+
+    # Visualización de la Curva ROC
     plt.figure(figsize=(8, 6))
     plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'Curva ROC (área = {roc_auc:.2f})')
     plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
@@ -202,29 +206,5 @@ def ejecutar_entrenamiento():
     plt.grid(alpha=0.3)
     plt.show()
 
-    # Curvas de aprendizaje
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(18, 6))
-    ax1.plot(history.history['loss'], label='Train Loss')
-    ax1.plot(history.history['val_loss'], label='Val Loss')
-    ax1.set_title('Evolución de la Pérdida')
-    ax1.legend()
-    
-    ax2.plot(history.history['auc'], label='Train AUC')
-    ax2.plot(history.history['val_auc'], label='Val AUC')
-    ax2.set_title('Evolución del AUC')
-    ax2.legend()
-    plt.show()
-
-    # Matriz de Confusión
-    cm = confusion_matrix(y_test, y_pred)
-    plt.figure(figsize=(8, 6))
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['No Compra', 'Compra'])
-    disp.plot(cmap='Purples', values_format='d')
-    plt.title('Matriz de Confusión Final')
-    plt.show()
-
-    # 10. ¡GUARDAR EL MODELO PARA LA API!
-    print("\n--- GUARDANDO RED NEURONAL ---")
-    model_final.save('model.keras')
-    print("¡model.keras exportado exitosamente!")
-    print("¡Pipeline completado! Ya tienes preprocessor.pkl y model.keras listos para la API.")
+if __name__ == "__main__":
+    ejecutar_entrenamiento()

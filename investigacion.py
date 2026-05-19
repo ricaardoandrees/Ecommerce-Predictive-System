@@ -14,7 +14,6 @@ def cargar_datos(ruta_archivo):
     return df
 
 def visualizar_datos(df):
-    """Genera los gráficos de investigación del Colab."""
     print("\n--- GENERANDO GRÁFICOS ---")
     
    # --- CARGA DE DATOS Y ANÁLISIS ---
@@ -41,7 +40,7 @@ def visualizar_datos(df):
     print("Gráficos generados. Cierra la ventana del gráfico para continuar.")
 
     # --- MATRIZ DE CORRELACIÓN ---
-    correlacion = df.corr()
+    correlacion = df[cols_numericas].corr()
     print("\n--- MATRIZ DE CORRELACIÓN ---")
     print(correlacion)
 
@@ -70,7 +69,7 @@ def visualizar_datos(df):
 
 def ejecutar_investigacion():
     # Asegúrate de que el nombre del csv sea el correcto
-    dataset = 'ecommerce_dataset.csv' 
+    dataset = 'Dataset/dataset shop.csv' 
     
     try:
         df = cargar_datos(dataset)
